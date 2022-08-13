@@ -2,14 +2,20 @@
 members = ["crates/*"]
 
 [package]
+edition = "2021"
 name = "neos-media-proxy"
 version = "0.1.0"
-edition = "2021"
 
 [dependencies]
 axum = {version = "0.5.15", features = ["ws", "headers"]}
+eyre = "0.6.8"
 headers = "0.3"
-tokio = { version = "1.0", features = ["full"] }
-tower-http = { version = "0.3.0", features = ["fs", "trace"] }
+inventory = "0.3.1"
+media-provider = {path = "crates/media-provider"}
+secrecy = {version = "0.8.0", features = ["serde"]}
+serde = {version = "1.0.143", features = ["derive"]}
+tokio = {version = "1.0", features = ["full"]}
+toml = "0.5.9"
+tower-http = {version = "0.3.0", features = ["fs", "trace"]}
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-subscriber = {version = "0.3", features = ["env-filter"]}

@@ -16,22 +16,49 @@ use axum::{
     routing::{get, get_service},
     Router,
 };
-use std::{net::SocketAddr, path::PathBuf};
+
+use std::{
+    net::SocketAddr,
+    path::{Path, PathBuf},
+};
+use tokio::fs;
 use tower_http::{
     services::ServeDir,
     trace::{DefaultMakeSpan, TraceLayer},
 };
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
+use secrecy::ExposeSecret;
+mod config;
+
 #[tokio::main]
-async fn main() {
+async fn main() -> eyre::Result<()> {
     tracing_subscriber::registry()
         .with(tracing_subscriber::EnvFilter::new(
             std::env::var("RUST_LOG")
-                .unwrap_or_else(|_| "example_websockets=debug,tower_http=debug".into()),
+                .unwrap_or_else(|_| "neos_media_proxy=debug,media_provider=debug,tower_http=debug".into()),
         ))
         .with(tracing_subscriber::fmt::layer())
         .init();
+
+    let config = load_config(None).await?;
+    tracing::debug!("loaded config: {:?}", config);
+
+    let providers = media_provider::providers();
+    tracing::debug!("providers: {:?}", providers);
+
+    for (_, profile) in config.profiles {
+        let session = match providers.get(profile.provider.as_str()) {
+            Some(p) => p.login(&profile.hostname, &profile.username, &profile.password.expose_secret()).await?,
+            None => {
+                tracing::error!("unknown profile provider: {}", profile.provider);
+                continue
+            },
+        };
+
+        session.libraries().await
+
+    }
 
     let assets_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets");
 
@@ -56,12 +83,20 @@ async fn main() {
         );
 
     // run it with hyper
-    let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
+    let addr = config
+        .server
+        .addr
+        .unwrap_or(SocketAddr::from(([127, 0, 0, 1], 3000)));
     tracing::debug!("listening on {}", addr);
     axum::Server::bind(&addr)
         .serve(app.into_make_service())
-        .await
-        .unwrap();
+        .await?;
+    Ok(())
+}
+
+async fn load_config(path: Option<&Path>) -> eyre::Result<config::Config> {
+    let file = fs::read_to_string(path.unwrap_or(Path::new("config.toml"))).await?;
+    Ok(toml::from_str(file.as_str())?)
 }
 
 async fn ws_handler(
@@ -83,7 +118,7 @@ async fn handle_socket(mut socket: WebSocket) {
                     println!("client sent str: {:?}", t);
                 }
                 Message::Binary(_) => {
-                    return // binary is useless for neos, we reject these connections
+                    return; // binary is useless for neos, we reject these connections
                 }
                 Message::Ping(_) => {
                     println!("socket ping");
